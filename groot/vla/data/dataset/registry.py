@@ -245,6 +245,8 @@ EMBODIMENT_TAGS_TO_DATASET_PATHS = {
             "/mnt/amlfs-02/shared/datasets/oss_testing/G1/g1_full_body_height_eef.g1_pickup_bottle"
         ),
     ],
+    # LIBERO sim - paths configured via CLI libero_data_root
+    EmbodimentTag.LIBERO_SIM: [],
 }
 
 DATASET_PATHS_TO_EMBODIMENT_TAGS = {

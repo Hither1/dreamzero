@@ -23,9 +23,12 @@ logger = logging.getLogger(__name__)
 WAN_HF_REPO_ID = "Wan-AI/Wan2.1-I2V-14B-480P"
 
 
+WAN_CACHE_DIR = "/n/netscratch/sham_lab/Lab/chloe00"
+
+
 def hf_download(filename: str) -> str:
     """Download a file from the Wan2.1-I2V-14B-480P HuggingFace repo to HF cache."""
-    path = hf_hub_download(repo_id=WAN_HF_REPO_ID, filename=filename)
+    path = hf_hub_download(repo_id=WAN_HF_REPO_ID, filename=filename, cache_dir=WAN_CACHE_DIR)
     return path
 
 

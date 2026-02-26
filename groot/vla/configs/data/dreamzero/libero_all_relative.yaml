@@ -1,0 +1,43 @@
+# @package _global_
+
+defaults:
+  - dreamzero/libero_relative
+  - _self_ # this file overrides libero_relative
+
+# Provide a dummy value since libero_relative requires it but we override train_dataset directly
+libero_data_root: /dev/null
+
+################################################################################
+# Train Dataset (all 4 LIBERO suites combined)
+################################################################################
+
+train_dataset:
+  _target_: ${mixture_dataset_cls}
+  _convert_: object
+  mixture_spec:
+    - dataset_path:
+        libero_sim:
+          - /n/holylfs06/LABS/sham_lab/Users/chloe00/vla-interp/dreamzero/data/libero_spatial_lerobot
+          - /n/holylfs06/LABS/sham_lab/Users/chloe00/vla-interp/dreamzero/data/libero_goal_lerobot
+          - /n/holylfs06/LABS/sham_lab/Users/chloe00/vla-interp/dreamzero/data/libero_object_lerobot
+          - /n/holylfs06/LABS/sham_lab/Users/chloe00/vla-interp/dreamzero/data/libero_10_lerobot
+      dataset_weight: 1.0
+      distribute_weights: true
+
+  dataset_class: ${single_dataset_cls}
+  all_modality_configs: ${modality_configs}
+  all_transforms: ${transforms}
+  metadata_versions: ${metadata_versions}
+  fps: ${fps}
+  dataset_kwargs:
+    video_backend: decord
+    use_global_metadata: ${use_global_metadata}
+    max_chunk_size: ${max_chunk_size}
+    relative_action: ${relative_action}
+    relative_action_keys: ${relative_action_keys}
+    relative_action_per_horizon: ${relative_action_per_horizon}
+  mixture_kwargs:
+    training: true
+    balance_dataset_weights: false
+    seed: 42
+    shard_sampling_rate: ${dataset_shard_sampling_rate}

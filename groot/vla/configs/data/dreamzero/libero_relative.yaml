@@ -1,0 +1,175 @@
+# @package _global_
+
+defaults:
+  - base_48_wan_fine_aug_relative
+  - _self_ # this file will override the base
+
+max_state_dim: 64
+use_global_metadata: false
+relative_action: true
+relative_action_per_horizon: false
+relative_action_keys:
+  - joint_position
+max_chunk_size: 5
+# Use 10% of data in shards before moving to next shard
+dataset_shard_sampling_rate: 0.1
+mixture_dataset_cls: groot.vla.data.dataset.lerobot_sharded.ShardedLeRobotMixtureDataset.from_mixture_spec
+single_dataset_cls: groot.vla.data.dataset.lerobot_sharded.ShardedLeRobotSubLangSingleActionChunkDatasetDROID
+
+# Set your LIBERO dataset path here or override via CLI:
+#   libero_data_root=/path/to/your/libero_lerobot_dataset
+libero_data_root: ???
+
+################################################################################
+# LIBERO Modality Configs
+################################################################################
+
+modality_config_libero_sim:
+  video:
+    _target_: groot.vla.data.dataset.ModalityConfig
+    delta_indices: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
+    eval_delta_indices: [0]
+    modality_keys:
+      - video.agentview_rgb
+      - video.eye_in_hand_rgb
+  state:
+    _target_: groot.vla.data.dataset.ModalityConfig
+    delta_indices: [0]
+    modality_keys:
+      - state.joint_position
+      - state.gripper_position
+  action:
+    _target_: groot.vla.data.dataset.ModalityConfig
+    delta_indices: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+    modality_keys:
+      - action.joint_position
+  language:
+    _target_: groot.vla.data.dataset.ModalityConfig
+    delta_indices: [0]
+    modality_keys:
+      - annotation.language.language_instruction
+
+################################################################################
+# Redefine anchors (YAML anchors are file-scoped; base file anchors unavailable here)
+################################################################################
+
+totensor_cfg: &totensor_cfg
+  _target_: groot.vla.data.transform.VideoToTensor
+  apply_to: ???
+
+crop_cfg: &crop_cfg
+  _target_: groot.vla.data.transform.VideoCrop
+  apply_to: ???
+  scale: 0.95
+  mode: random
+
+resize_cfg: &resize_cfg
+  _target_: groot.vla.data.transform.VideoResize
+  apply_to: ???
+  height: ${image_resolution_height}
+  width: ${image_resolution_width}
+  interpolation: linear
+
+color_jitter_cfg: &color_jitter_cfg
+  _target_: groot.vla.data.transform.VideoColorJitter
+  apply_to: ???
+  brightness: 0.3
+  contrast: 0.4
+  saturation: 0.5
+  hue: 0.08
+
+to_numpy_cfg: &to_numpy_cfg
+  _target_: groot.vla.data.transform.VideoToNumpy
+  apply_to: ???
+
+################################################################################
+# LIBERO Transforms
+################################################################################
+
+transform_libero_sim:
+  _target_: groot.vla.data.transform.ComposedModalityTransform
+  transforms:
+    # Video transforms
+    - <<: *totensor_cfg
+      apply_to: ${modality_config_libero_sim.video.modality_keys}
+    - <<: *crop_cfg
+      apply_to: ${modality_config_libero_sim.video.modality_keys}
+    - <<: *resize_cfg
+      apply_to: ${modality_config_libero_sim.video.modality_keys}
+    - <<: *color_jitter_cfg
+      apply_to: ${modality_config_libero_sim.video.modality_keys}
+    - <<: *to_numpy_cfg
+      apply_to: ${modality_config_libero_sim.video.modality_keys}
+
+    # State transforms
+    - _target_: groot.vla.data.transform.StateActionToTensor
+      apply_to: ${modality_config_libero_sim.state.modality_keys}
+    - _target_: groot.vla.data.transform.StateActionTransform
+      apply_to: ${modality_config_libero_sim.state.modality_keys}
+      normalization_modes:
+        state.joint_position: q99
+        state.gripper_position: q99
+
+    # Action transforms
+    - _target_: groot.vla.data.transform.StateActionToTensor
+      apply_to: ${modality_config_libero_sim.action.modality_keys}
+    - _target_: groot.vla.data.transform.StateActionTransform
+      apply_to: ${modality_config_libero_sim.action.modality_keys}
+      normalization_modes:
+        action.joint_position: q99
+
+    # ConcatTransform
+    - _target_: groot.vla.data.transform.ConcatTransform
+      video_concat_order: ${modality_config_libero_sim.video.modality_keys}
+      state_concat_order: ${modality_config_libero_sim.state.modality_keys}
+      action_concat_order: ${modality_config_libero_sim.action.modality_keys}
+
+    # Model-specific transform
+    - ${model_specific_transform}
+
+################################################################################
+# Modality Configs, Transforms, Metadata Versions
+################################################################################
+
+modality_configs:
+  libero_sim: ${modality_config_libero_sim}
+
+transforms:
+  libero_sim: ${transform_libero_sim}
+
+metadata_versions:
+  libero_sim: '0221'
+
+fps: {}
+
+################################################################################
+# Train Dataset
+################################################################################
+
+train_dataset:
+  _target_: ${mixture_dataset_cls}
+  _convert_: object
+  mixture_spec:
+    - dataset_path:
+        libero_sim:
+          - ${libero_data_root}
+      dataset_weight: 1.0
+      distribute_weights: true
+
+  dataset_class: ${single_dataset_cls}
+  all_modality_configs: ${modality_configs}
+  all_transforms: ${transforms}
+  metadata_versions: ${metadata_versions}
+  fps: ${fps}
+  dataset_kwargs:
+    video_backend: decord
+    use_global_metadata: ${use_global_metadata}
+    max_chunk_size: ${max_chunk_size}
+    relative_action: ${relative_action}
+    relative_action_keys: ${relative_action_keys}
+    relative_action_per_horizon: ${relative_action_per_horizon}
+  mixture_kwargs:
+    training: true
+    balance_dataset_weights: false
+    seed: 42
+    shard_sampling_rate: ${dataset_shard_sampling_rate}
