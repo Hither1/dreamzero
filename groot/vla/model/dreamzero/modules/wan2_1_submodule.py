@@ -804,9 +804,9 @@ class WanModel(ModelMixin, ConfigMixin):
             context=context,
             context_lens=context_lens)
 
-        def create_custom_forward(module):
-            def custom_forward(*inputs, **kwargs):
-                return module(*inputs, **kwargs)
+        def create_custom_forward(module, **captured_kwargs):
+            def custom_forward(x):
+                return module(x, **captured_kwargs)
             return custom_forward
 
         # TODO: Tune the number of blocks for feature extraction
@@ -824,9 +824,9 @@ class WanModel(ModelMixin, ConfigMixin):
         for ii, block in enumerate(self.blocks):
             if torch.is_grad_enabled() and self.gradient_checkpointing:
                 x = torch.utils.checkpoint.checkpoint(
-                    create_custom_forward(block),
-                    x, **kwargs,
-                    use_reentrant=False,
+                    create_custom_forward(block, **kwargs),
+                    x,
+                    use_reentrant=True,
                 )
             else:
                 x = block(x, **kwargs)

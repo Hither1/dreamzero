@@ -1,12 +1,12 @@
 #!/bin/bash
 #SBATCH --job-name=dreamzero_libero_all
-#SBATCH --partition=kempner
+#SBATCH --partition=kempner_h100
 #SBATCH --account=kempner_sham_lab
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4
 #SBATCH --gres=gpu:4
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=256G
+#SBATCH --mem=500G
 #SBATCH --time=24:00:00
 #SBATCH --output=logs/dreamzero_libero_all_%j.out
 #SBATCH --error=logs/dreamzero_libero_all_%j.err
@@ -19,7 +19,17 @@
 # Usage:
 #   sbatch scripts/train/libero_all_training_slurm.sh
 
+module load gcc/12.2.0-fasrc01
+module load cuda/12.4.1-fasrc01
+
 export HYDRA_FULL_ERROR=1
+
+source ~/.bashrc
+conda deactivate
+conda activate vla
+
+export PYTHONPATH=$PYTHONPATH:$PWD/third_party/libero
+export LIBERO_CONFIG_PATH=/n/holylfs06/LABS/sham_lab/Users/chloe00/vla-interp/third_party/libero
 
 # ============ USER CONFIGURATION ============
 OUTPUT_DIR=${OUTPUT_DIR:-"/n/netscratch/sham_lab/Lab/chloe00/libero/dreamzero_libero_all_lora"}
@@ -43,7 +53,7 @@ fi
 # ================================================
 
 torchrun --nproc_per_node $NUM_GPUS --standalone groot/vla/experiment/experiment.py \
-    report_to=none \
+    report_to=wandb \
     data=dreamzero/libero_all_relative \
     wandb_project=dreamzero_libero_all \
     train_architecture=lora \
@@ -58,7 +68,7 @@ torchrun --nproc_per_node $NUM_GPUS --standalone groot/vla/experiment/experiment
     num_state_per_block=1 \
     seed=42 \
     training_args.learning_rate=1e-5 \
-    training_args.deepspeed="groot/vla/configs/deepspeed/zero2.json" \
+    training_args.deepspeed="groot/vla/configs/deepspeed/zero3.json" \
     save_steps=200 \
     training_args.warmup_ratio=0.05 \
     output_dir=$OUTPUT_DIR \

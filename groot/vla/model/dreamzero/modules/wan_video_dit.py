@@ -496,25 +496,20 @@ class WanModel(ModelMixin, ConfigMixin):
         # print("x and context shape", x.shape, context.shape, f,h,w)
         
         freqs = self.rope(f=f, h=h, w=w, a=x.shape[1])
-        def create_custom_forward(module):
-            def custom_forward(*inputs):
-                return module(*inputs)
-            return custom_forward
-
         for block in self.blocks:
             if self.training and self.use_gradient_checkpointing:
                 if self.use_gradient_checkpointing_offload:
                     with torch.autograd.graph.save_on_cpu():
                         x = torch.utils.checkpoint.checkpoint(
-                            create_custom_forward(block),
+                            block,
                             x, context, t_mod, freqs,
-                            use_reentrant=False,
+                            use_reentrant=True,
                         )
                 else:
                     x = torch.utils.checkpoint.checkpoint(
-                        create_custom_forward(block),
+                        block,
                         x, context, t_mod, freqs,
-                        use_reentrant=False,
+                        use_reentrant=True,
                     )
             else:
                 x = block(x, context, t_mod, freqs)

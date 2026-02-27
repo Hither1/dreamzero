@@ -2078,9 +2078,9 @@ class CausalWanModel(ModelMixin, ConfigMixin):
             is_tf=clean_x is not None,
         )
 
-        def create_custom_forward(module):
-            def custom_forward(*inputs, **kwargs):
-                outputs, updated_kv_cache = module(*inputs, **kwargs)
+        def create_custom_forward(module, **captured_kwargs):
+            def custom_forward(x):
+                outputs, updated_kv_cache = module(x, **captured_kwargs)
                 assert updated_kv_cache is None
                 return outputs
             return custom_forward
@@ -2088,9 +2088,9 @@ class CausalWanModel(ModelMixin, ConfigMixin):
         for block in self.blocks:
             if torch.is_grad_enabled() and self.gradient_checkpointing:
                 x = torch.utils.checkpoint.checkpoint(
-                    create_custom_forward(block),
-                    x, **kwargs,
-                    use_reentrant=False,
+                    create_custom_forward(block, **kwargs),
+                    x,
+                    use_reentrant=True,
                 )
             else:
                 x = block(x, **kwargs)
