@@ -8,7 +8,14 @@ from hydra.utils import instantiate
 import numpy as np
 from omegaconf import OmegaConf
 from tianshou.data import Batch
-from tianshou.policy import BasePolicy as BaseTianshouPolicy
+try:
+    from tianshou.policy import BasePolicy as BaseTianshouPolicy
+except ImportError:
+    # tianshou v2+ Algorithm requires a 'policy' arg in __init__ and is incompatible
+    # with inference-only wrappers, so fall back to a plain base class.
+    class BaseTianshouPolicy:
+        def __init__(self, *args, **kwargs):
+            pass
 import torch
 import torch.distributed as dist
 from torch.distributed.device_mesh import DeviceMesh

@@ -838,13 +838,23 @@ class ShardedLeRobotSubLangSingleActionChunkDatasetDROID(LeRobotSingleDataset):
 
             if len(sampled_list) > 0:
                 sampled_indices = np.array(sorted(set(sampled_list)), dtype=int)
+                # Pad to target_num_chunks anchors when trajectory is too short.
+                # Mirrors action/video padding so state_features.shape[1] is always
+                # target_num_chunks and the model assertion on line 670 holds.
+                if target_num_chunks is not None and len(sampled_indices) < target_num_chunks:
+                    pad_idx = int(min(sampled_indices[-1], trajectory_length - 1))
+                    needed = target_num_chunks - len(sampled_indices)
+                    sampled_indices = np.concatenate([
+                        sampled_indices,
+                        np.full(needed, pad_idx, dtype=int)
+                    ])
             else:
                 sampled_indices = np.array([], dtype=int)
         else:
             # Fallback: use provided indices with bounds
             sampled_indices = np.maximum(step_indices, 0)
             sampled_indices = np.minimum(sampled_indices, trajectory_length - 1)
-        
+
         # print("sampled indices for state", sampled_indices)
 
         # Pad the data using the computed sampled indices
@@ -1016,6 +1026,18 @@ class ShardedLeRobotSubLangSingleActionChunkDatasetDROID(LeRobotSingleDataset):
                 capped_size = min(unique_sorted.size, max_frames)
                 divisible_size = (capped_size // 24) * 24
                 sampled_indices = unique_sorted[:divisible_size]
+                # Pad to target_num_chunks * 24 when trajectory is too short for all chunks.
+                # Mirrors video padding (lines ~1236-1242) so ZeRO-3 sees consistent tensor
+                # shapes across ranks and the model assertion always holds.
+                if target_num_chunks is not None:
+                    expected = target_num_chunks * 24
+                    if len(sampled_indices) < expected:
+                        pad_idx = int(min(sampled_indices[-1], trajectory_length - 1))
+                        needed = expected - len(sampled_indices)
+                        sampled_indices = np.concatenate([
+                            sampled_indices,
+                            np.full(needed, pad_idx, dtype=int)
+                        ])
             else:
                 sampled_indices = np.array([], dtype=int)
         else:
@@ -1215,17 +1237,32 @@ class ShardedLeRobotSubLangSingleActionChunkDatasetDROID(LeRobotSingleDataset):
             # Get the last index and add one more frame with 8-frame stride
             last_idx = unique_sorted[-1]
             additional_idx = last_idx + 3
-            
+
             # Only add if it doesn't exceed trajectory bounds and max_frames
             if additional_idx < trajectory_length and unique_sorted.size < max_frames:
                 unique_sorted = np.append(unique_sorted, additional_idx)
-            else: 
-                # print("additional_idx", additional_idx, trajectory_length, unique_sorted.size, max_frames)
-                unique_sorted = unique_sorted[:-7]
-        
+            else:
+                # Clamp to last valid frame to maintain 8n+1 format without losing chunks.
+                # Previously this did unique_sorted[:-7], which produced 25 frames instead of
+                # 33 for short trajectories. Different frame counts across distributed ranks
+                # causes ZeRO-3 NCCL deadlocks due to divergent backward pass parameter traversal.
+                clamped_idx = min(additional_idx, trajectory_length - 1)
+                unique_sorted = np.append(unique_sorted, clamped_idx)
+
         # ensure that unique_sorted has 4n+1 frames
         assert unique_sorted.size % 8 == 1, f"unique_sorted size {unique_sorted.size} is not 4n+1"
-        
+
+        # Pad to max_frames if shorter, to ensure all distributed ranks produce tensors of the
+        # same shape. Without this, short trajectories yield 9/17/25-frame videos while long
+        # ones yield 33 frames, causing ZeRO-3 all-gather deadlocks.
+        if unique_sorted.size < max_frames:
+            pad_idx = int(min(unique_sorted[-1], trajectory_length - 1))
+            padding_needed = max_frames - unique_sorted.size
+            unique_sorted = np.concatenate([
+                unique_sorted,
+                np.full(padding_needed, pad_idx, dtype=int)
+            ])
+
         # Store the number of chunks for alignment with action/state
         num_video_chunks = (unique_sorted.size - 1) // 8
         if not hasattr(self, '_current_num_chunks'):

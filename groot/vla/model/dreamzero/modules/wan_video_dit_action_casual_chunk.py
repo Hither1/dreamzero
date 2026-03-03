@@ -27,6 +27,27 @@ import os
 
 ENABLE_TENSORRT = os.getenv("ENABLE_TENSORRT", "False").lower() == "true"
 
+# ── Attention-capture API ────────────────────────────────────────────────────
+# Set enabled=True before a forward pass to record per-layer action→visual
+# attention weights.  Each captured entry is a dict:
+#   {"attn": Tensor(B, n_visual_tokens),   # mean over heads and action tokens
+#    "frame_seqlen": int}                  # tokens per video frame in this DiT
+_ATTN_CAPTURE: dict = {"enabled": False, "buffer": []}
+
+
+def set_attn_capture(enabled: bool) -> None:
+    _ATTN_CAPTURE["enabled"] = enabled
+
+
+def clear_attn_buffer() -> None:
+    _ATTN_CAPTURE["buffer"].clear()
+
+
+def get_attn_buffer() -> list:
+    """Return a copy of the captured attention dicts."""
+    return list(_ATTN_CAPTURE["buffer"])
+# ────────────────────────────────────────────────────────────────────────────
+
 
 class CategorySpecificLinear(nn.Module):
     def __init__(self, num_categories, input_dim, hidden_dim):
@@ -1069,6 +1090,31 @@ class CausalWanSelfAttention(nn.Module):
                     torch.cat([new_k, roped_action_key], dim=1),
                     torch.cat([new_v, action_v], dim=1),
                 )
+                # Capture action→visual attention weights for visualization.
+                if _ATTN_CAPTURE["enabled"]:
+                    n_hist = updated_k.shape[1]
+                    if n_hist > 0:
+                        with torch.no_grad():
+                            scale = self.head_dim ** -0.5
+                            # (B, A, n, d) → (B, n, A, d)
+                            q_a = roped_action_query.detach().permute(0, 2, 1, 3).float()
+                            # Use the full key sequence [visual_cache+current | action] so the
+                            # softmax denominator matches the actual forward pass.
+                            k_joint = torch.cat([new_k, roped_action_key], dim=1) \
+                                           .detach().permute(0, 2, 1, 3).float()
+                            aw_full = torch.softmax(
+                                torch.matmul(q_a, k_joint.transpose(-2, -1)) * scale,
+                                dim=-1,
+                            )  # (B, n_heads, A, V_total+A)
+                            # Restrict to the clean historical KV-cache frames (updated_k)
+                            # only — excludes the noisy current frames being denoised and
+                            # action self-attention columns.
+                            aw_hist = aw_full[:, :, :, :n_hist]  # (B, n_heads, A, n_hist)
+                            # Mean over heads and action tokens → (B, n_hist)
+                            _ATTN_CAPTURE["buffer"].append({
+                                "attn": aw_hist.mean(dim=[1, 2]).cpu(),
+                                "frame_seqlen": self.frame_seqlen,
+                            })
             else:
                 x = self.attn(
                     roped_query,
@@ -2093,7 +2139,7 @@ class CausalWanModel(ModelMixin, ConfigMixin):
                     use_reentrant=True,
                 )
             else:
-                x = block(x, **kwargs)
+                x, _ = block(x, **kwargs)
 
         if clean_x is not None:
             x = x[:, clean_x.shape[1]:]

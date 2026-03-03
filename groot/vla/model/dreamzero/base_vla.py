@@ -405,6 +405,15 @@ class VLA(PreTrainedModel):
         else:
             print("State dict already has 'action_head.model.base_model.model' pattern, skipping key rewrite")
 
+        # Drop zero-size placeholder tensors saved by older checkpoints (e.g. state_encoder.layer2.W,
+        # action_encoder.W2/W3.W, action_decoder.layer1.W).  These were saved as torch.Size([0])
+        # and would otherwise cause a hard size-mismatch error; dropping them lets the model keep
+        # its randomly-initialized weights for those layers.
+        zero_size_keys = [k for k, v in state_dict.items() if 0 in v.shape]
+        if zero_size_keys:
+            print(f"Skipping {len(zero_size_keys)} zero-size tensors from checkpoint: {zero_size_keys}")
+            state_dict = {k: v for k, v in state_dict.items() if k not in zero_size_keys}
+
         # Load weights
         missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
         print("main network after", model.action_head.model.blocks[8].cross_attn.k.weight.shape, model.action_head.model.blocks[8].cross_attn.k.weight[0,0:10])

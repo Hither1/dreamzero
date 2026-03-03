@@ -6,7 +6,7 @@ defaults:
 
 max_state_dim: 64
 use_global_metadata: false
-relative_action: true
+relative_action: false
 relative_action_per_horizon: false
 relative_action_keys:
   - joint_position
@@ -40,9 +40,10 @@ modality_config_libero_sim:
       - state.gripper_position
   action:
     _target_: groot.vla.data.dataset.ModalityConfig
-    delta_indices: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+    delta_indices: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
     modality_keys:
       - action.joint_position
+      - action.gripper_position
   language:
     _target_: groot.vla.data.dataset.ModalityConfig
     delta_indices: [0]
@@ -117,6 +118,7 @@ transform_libero_sim:
       apply_to: ${modality_config_libero_sim.action.modality_keys}
       normalization_modes:
         action.joint_position: q99
+        action.gripper_position: q99
 
     # ConcatTransform
     - _target_: groot.vla.data.transform.ConcatTransform

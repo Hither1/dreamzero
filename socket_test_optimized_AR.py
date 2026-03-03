@@ -744,9 +744,10 @@ def main(args: Args) -> None:
     # Use TE cuDNN backend for attention.
     os.environ["ATTENTION_BACKEND"] = "TE"
 
-    # Increase the recompile limit to 100 for inference due
-    # to autoregressive nature of the model (several possible shapes).
-    torch._dynamo.config.recompile_limit = 800
+    # Increase the recompile limit for inference due to autoregressive
+    # nature of the model (several possible shapes).
+    # `recompile_limit` was renamed to `cache_size_limit` in PyTorch 2.6.
+    torch._dynamo.config.cache_size_limit = 800
 
     embodiment_tag = "oxe_droid"
     model_path = args.model_path

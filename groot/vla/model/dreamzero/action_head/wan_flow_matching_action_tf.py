@@ -751,7 +751,7 @@ class WANPolicyHead(ActionHead):
                 action_loss_per_sample = torch.nn.functional.mse_loss(
                     action_noise_pred.float(), training_target_action.float(), reduction='none'
                 ) * action_mask  # shape: [B, ...]
-                action_loss_per_sample = has_real_action[:, None].float() * action_loss_per_sample  # apply has_real_action
+                action_loss_per_sample = has_real_action[:, None, None].float() * action_loss_per_sample  # apply has_real_action
                 weight_action = action_loss_per_sample.mean(dim=2) * self.scheduler.training_weight(
                     timestep_action.flatten(0, 1),
                 ).unflatten(0, (noise_action.shape[0], noise_action.shape[1])).to(self._device)
@@ -1295,10 +1295,11 @@ class WANPolicyHead(ActionHead):
         self.vae.to(device=self._device, dtype=torch.bfloat16)
         import os
         ENABLE_TENSORRT = os.getenv("ENABLE_TENSORRT", "False").lower() == "true"
+        DISABLE_TORCH_COMPILE = os.getenv("DISABLE_TORCH_COMPILE", "False").lower() == "true"
         LOAD_TRT_ENGINE = os.getenv("LOAD_TRT_ENGINE", None)
 
         # Torch compile the modules.
-        if not ENABLE_TENSORRT:
+        if not ENABLE_TENSORRT and not DISABLE_TORCH_COMPILE:
             print("Torch compiling the Wan, TextEncoder, ImageEncoder, and VAE modules.")
 
             self.model._forward_blocks = torch.compile(
