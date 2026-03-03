@@ -70,6 +70,12 @@ echo "============================================"
 
 export PYTHONPATH=$PYTHONPATH:$PWD
 
+# Redirect HuggingFace cache away from home dir (which has limited quota)
+# to netscratch so model components don't try to download into ~/.cache.
+export HF_HOME=/n/netscratch/sham_lab/Lab/chloe00/huggingface
+export HF_HUB_CACHE=$HF_HOME/hub
+mkdir -p "$HF_HUB_CACHE"
+
 # tyro parses bool fields as flags (--flag / omit), not --flag true/false.
 # Build the optional --enable_dit_cache flag only when requested.
 DIT_CACHE_FLAG=""

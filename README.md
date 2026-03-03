@@ -89,6 +89,12 @@ We release a 14B pretrained DROID checkpoint on [Huggingface](https://huggingfac
 hf download GEAR-Dreams/DreamZero-DROID --repo-type model --local-dir <path/to/checkpoint>
 ```
 
+## Real Robot Deployment (DROID)
+
+For deploying DreamZero on a physical DROID robot with the model hosted on the cluster, see
+**[docs/DROID_REAL_ROBOT.md](docs/DROID_REAL_ROBOT.md)**.
+It covers the full server/client setup, SLURM launch script, smoke testing, and troubleshooting.
+
 ## Running the Inference Server
 
 ### Command Overview
