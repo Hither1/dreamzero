@@ -749,6 +749,12 @@ def main(args: Args) -> None:
     # `recompile_limit` was renamed to `cache_size_limit` in PyTorch 2.6.
     torch._dynamo.config.cache_size_limit = 800
 
+    # Persist compiled FX graphs and Inductor kernels to disk so that
+    # subsequent server restarts skip recompilation (~5 min → ~30 s warmup).
+    # Cache directory is set via TORCHINDUCTOR_CACHE_DIR env var in the
+    # SLURM script; defaults to ~/.cache/torch/inductor if unset.
+    torch._inductor.config.fx_graph_cache = True
+
     embodiment_tag = "oxe_droid"
     model_path = args.model_path
     policy_metadata = {

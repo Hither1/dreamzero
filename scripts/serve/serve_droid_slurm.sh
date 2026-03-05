@@ -76,6 +76,12 @@ export HF_HOME=/n/netscratch/sham_lab/Lab/chloe00/huggingface
 export HF_HUB_CACHE=$HF_HOME/hub
 mkdir -p "$HF_HUB_CACHE"
 
+# Persist PyTorch Inductor compiled kernels and FX graphs to disk.
+# On first run each unique tensor shape is compiled (~5 min total).
+# On subsequent server restarts the cache is loaded instead (~30 s warmup).
+export TORCHINDUCTOR_CACHE_DIR=/n/netscratch/sham_lab/Lab/chloe00/torch_inductor_cache
+mkdir -p "$TORCHINDUCTOR_CACHE_DIR"
+
 # tyro parses bool fields as flags (--flag / omit), not --flag true/false.
 # Build the optional --enable_dit_cache flag only when requested.
 DIT_CACHE_FLAG=""

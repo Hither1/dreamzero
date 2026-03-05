@@ -969,20 +969,20 @@ class ShardedLeRobotSubLangSingleActionChunkDatasetDROID(LeRobotSingleDataset):
                 target_num_chunks = self._current_num_chunks[first_idx]
                 # print(f"Using target_num_chunks from video: {target_num_chunks}")
             
-            max_frames = 24 * self.max_chunk_size
-            per_step_offsets = list(range(24))  # 0..23
+            max_frames = 48 * self.max_chunk_size
+            per_step_offsets = list(range(48))  # 0..47
             sampled_list: list[int] = []
 
             def add_step_set(anchor_index: int) -> None:
                 nonlocal sampled_list
-                # Ensure the whole 32-length chunk fits within bounds
-                if anchor_index < 0 or anchor_index + 24 >= trajectory_length:
+                # Ensure the whole 48-step chunk fits within bounds
+                if anchor_index < 0 or anchor_index + 48 >= trajectory_length:
                     return
                 # Ensure we don't overrun the max_frames cap with a partial chunk
-                if len(sampled_list) + 24 > max_frames:
+                if len(sampled_list) + 48 > max_frames:
                     return
                 # If we have a target number of chunks, stop when we reach it
-                if target_num_chunks is not None and len(sampled_list) // 24 >= target_num_chunks:
+                if target_num_chunks is not None and len(sampled_list) // 48 >= target_num_chunks:
                     return
                 for offset in per_step_offsets:
                     idx = anchor_index + offset
@@ -997,7 +997,7 @@ class ShardedLeRobotSubLangSingleActionChunkDatasetDROID(LeRobotSingleDataset):
             fwd_done = False
             while len(sampled_list) < max_frames and (not back_done or not fwd_done):
                 # Stop if we've reached the target number of chunks
-                if target_num_chunks is not None and len(sampled_list) // 24 >= target_num_chunks:
+                if target_num_chunks is not None and len(sampled_list) // 48 >= target_num_chunks:
                     break
                     
                 if not back_done:
@@ -1022,15 +1022,15 @@ class ShardedLeRobotSubLangSingleActionChunkDatasetDROID(LeRobotSingleDataset):
 
             if len(sampled_list) > 0:
                 unique_sorted = np.array(sorted(set(sampled_list)), dtype=int)
-                # Enforce divisibility by 30 and the 480 cap
+                # Enforce divisibility by 48 and the cap
                 capped_size = min(unique_sorted.size, max_frames)
-                divisible_size = (capped_size // 24) * 24
+                divisible_size = (capped_size // 48) * 48
                 sampled_indices = unique_sorted[:divisible_size]
-                # Pad to target_num_chunks * 24 when trajectory is too short for all chunks.
+                # Pad to target_num_chunks * 48 when trajectory is too short for all chunks.
                 # Mirrors video padding (lines ~1236-1242) so ZeRO-3 sees consistent tensor
                 # shapes across ranks and the model assertion always holds.
                 if target_num_chunks is not None:
-                    expected = target_num_chunks * 24
+                    expected = target_num_chunks * 48
                     if len(sampled_indices) < expected:
                         pad_idx = int(min(sampled_indices[-1], trajectory_length - 1))
                         needed = expected - len(sampled_indices)
@@ -1070,7 +1070,7 @@ class ShardedLeRobotSubLangSingleActionChunkDatasetDROID(LeRobotSingleDataset):
                 action_key=key,
                 sampled_indices=sampled_indices,
                 trajectory_id=trajectory_id,
-                chunk_size=24,
+                chunk_size=48,
             )
             # print("action data after convert", action_data[0], action_data[-1], key)
         

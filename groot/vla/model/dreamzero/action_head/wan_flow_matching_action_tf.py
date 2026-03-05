@@ -582,8 +582,11 @@ class WANPolicyHead(ActionHead):
             target_modules=lora_target_modules.split(","),
         )
         model = get_peft_model(model, lora_config)
-        for param in model.parameters():
-            param.data = param.to(torch.float32)
+        # Only convert LoRA adapter weights to fp32 for training stability.
+        # Keep base model weights in bf16 to avoid doubling memory footprint.
+        for name, param in model.named_parameters():
+            if 'lora_' in name:
+                param.data = param.data.to(torch.float32)
         return model
 
     def forward(self, backbone_output: BatchFeature, action_input: BatchFeature) -> BatchFeature:

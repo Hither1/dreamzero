@@ -25,6 +25,7 @@ module load gcc/12.2.0-fasrc01
 module load cuda/12.4.1-fasrc01
 
 export HYDRA_FULL_ERROR=1
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 source ~/.bashrc
 conda deactivate
@@ -59,22 +60,22 @@ torchrun --nproc_per_node $NUM_GPUS --standalone groot/vla/experiment/experiment
     data=dreamzero/libero_all_relative \
     wandb_project=dreamzero_libero_all \
     train_architecture=lora \
-    num_frames=33 \
-    action_horizon=16 \
+    num_frames=17 \
+    action_horizon=48 \
     num_views=2 \
     model=dreamzero/vla \
     model/dreamzero/action_head=wan_flow_matching_action_tf \
     model/dreamzero/transform=dreamzero_cotrain \
-    num_frame_per_block=8 \
-    num_action_per_block=16 \
+    num_frame_per_block=2 \
+    num_action_per_block=48 \
     num_state_per_block=1 \
     seed=42 \
     training_args.learning_rate=1e-4 \
-    training_args.deepspeed="groot/vla/configs/deepspeed/zero3.json" \
+    training_args.deepspeed="groot/vla/configs/deepspeed/zero2.json" \
     save_steps=200 \
     training_args.warmup_ratio=0.05 \
     output_dir=$OUTPUT_DIR \
-    per_device_train_batch_size=2 \
+    per_device_train_batch_size=1 \
     max_steps=10000 \
     weight_decay=1e-5 \
     save_total_limit=5 \
@@ -87,8 +88,8 @@ torchrun --nproc_per_node $NUM_GPUS --standalone groot/vla/experiment/experiment
     image_resolution_width=224 \
     image_resolution_height=224 \
     save_lora_only=true \
-    max_chunk_size=4 \
-    frame_seqlen=880 \
+    max_chunk_size=2 \
+    frame_seqlen=784 \
     save_strategy=steps \
     dit_version=$WAN_CKPT_DIR \
     text_encoder_pretrained_path=$WAN_CKPT_DIR/models_t5_umt5-xxl-enc-bf16.pth \

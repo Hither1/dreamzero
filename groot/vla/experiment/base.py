@@ -690,14 +690,13 @@ class BaseExperiment(ABC):
         self.trainer = trainer
 
     def create_model(self, cfg, training_args):
-        # if cfg.pretrained_model_path is not None:
-        #     print("loading model from pretrained_model_path", cfg.pretrained_model_path)
-        #     model = AutoModel.from_pretrained(cfg.pretrained_model_path)
-        #     # NOTE -- these must match, causes downstream issues otherwise
-        #     # cfg_from_cli = instantiate(cfg.model.config, _convert_="object")
-        #     # cfg_from_model = model.config
-        # else:
-        model = instantiate(cfg.model)
+        if cfg.get("pretrained_model_path") is not None:
+            print("loading model from pretrained_model_path", cfg.pretrained_model_path)
+            from groot.vla.model.dreamzero.base_vla import VLA
+            vla_config = instantiate(cfg.model.config, _convert_="object")
+            model = VLA.from_pretrained_for_tuning(cfg.pretrained_model_path, config=vla_config)
+        else:
+            model = instantiate(cfg.model)
         model.config.resume_path = model.config._name_or_path = training_args.output_dir
         mprint(f"{model}\n")
         return model
