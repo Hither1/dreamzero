@@ -473,19 +473,27 @@ class BaseTrainer(transformers.Trainer):
 
         return self.optimizer
 
+    def _save_optimizer_and_scheduler(self, output_dir):
+        # When save_lora_only=True we only need the LoRA weights, not the full DeepSpeed
+        # optimizer/scheduler state.  Saving ZeRO-2 optimizer shards for a 14B model
+        # (~28 GB per GPU) to a network filesystem regularly exceeds the NCCL watchdog
+        # timeout (30 min) and kills all ranks.  Skip it in this mode.
+        if getattr(self.base_cfg, "save_lora_only", False):
+            return
+        super()._save_optimizer_and_scheduler(output_dir)
+
     def save_model(self, output_dir: Optional[str], _internal_call: bool):
 
         ## save tuned model separately
-        if self.is_deepspeed_enabled:
+        if self.base_cfg.save_lora_only:
+            # LoRA parameters are replicated on every rank in ZeRO-2; no need for the
+            # expensive all-gather that get_state_dict() performs for larger stage configs.
+            train_key = [k for k, v in self.model.named_parameters() if v.requires_grad]
+            state_dict = {k: v for k, v in self.model.state_dict().items() if k in train_key}
+        elif self.is_deepspeed_enabled:
             state_dict = self.accelerator.get_state_dict(self.deepspeed)
         else:
             state_dict = self.model.state_dict()
-
-        if self.base_cfg.save_lora_only:
-            # Save only the trainable parameters
-            train_key = [k for k, v in self.model.named_parameters() if v.requires_grad]
-            lora_state_dict = {k: v for k, v in self.model.state_dict().items() if k in train_key}
-            state_dict = lora_state_dict
 
         if self.args.should_save:
             ret = self.model.save_pretrained(output_dir, state_dict=state_dict)
@@ -707,7 +715,12 @@ class BaseExperiment(ABC):
         return train_dataset
 
     def create_val_dataset(self, cfg, model):
-        return None
+        if cfg.get("val_dataset") is None:
+            return None
+        val_dataset = instantiate(cfg.val_dataset)
+        print("Using val dataset:")
+        print(val_dataset)
+        return val_dataset
 
     def create_data_collator(self, cfg, model):
         return instantiate(cfg.data_collator)
@@ -772,6 +785,25 @@ class BaseExperiment(ABC):
 
         loss_log_path = str(Path(training_args.output_dir) / "loss_log.jsonl")
         trainer.add_callback(LossLoggerCallback(output_path=loss_log_path))
+
+        # Add LIBERO simulation eval callback when configured.
+        libero_task_suite = cfg.get("libero_eval_task_suite", None)
+        if libero_task_suite is not None:
+            from groot.vla.experiment.libero_eval_callback import LiberoEvalCallback
+            trainer.add_callback(
+                LiberoEvalCallback(
+                    task_suite_name=libero_task_suite,
+                    num_trials_per_task=cfg.get("libero_eval_num_trials", 3),
+                    exp_cfg_dir=exp_cfg_dir,
+                    embodiment_tag=cfg.get("libero_eval_embodiment_tag", "libero_sim"),
+                    seed=cfg.get("libero_eval_seed", 0),
+                    replan_steps=cfg.get("libero_eval_replan_steps", 8),
+                    eval_on_save=cfg.get("libero_eval_on_save", False),
+                    num_steps_wait=cfg.get("libero_eval_num_steps_wait", 10),
+                    max_tasks=cfg.get("libero_eval_max_tasks", None),
+                )
+            )
+            mprint(f"LiberoEvalCallback registered for suite '{libero_task_suite}'")
 
         # Add profiling callback (local profiling only, no S3 upload)
         # Local: {output_dir}/profiling/rank_{id}/*.pt.trace.json

@@ -68,6 +68,18 @@ max_steps: -1
 save_strategy: steps
 save_steps: 500
 eval_strategy: "no"  # there has to be a double quote; otherwise a bare `no` will be interpreted as False
+eval_on_start: false  # kept for static val_dataset loss eval; LIBERO sim eval uses libero_eval_task_suite
+
+# LIBERO simulation evaluation (runs on rank 0 using the live training model).
+# Set libero_eval_task_suite to enable (e.g. "libero_10", "libero_spatial").
+libero_eval_task_suite: null
+libero_eval_num_trials: 3        # rollouts per task (keep small for quick eval)
+libero_eval_embodiment_tag: libero_sim
+libero_eval_seed: 0
+libero_eval_replan_steps: 8      # execute N actions from each chunk before replanning
+libero_eval_on_save: false        # also eval after every checkpoint (not just step 0)
+libero_eval_num_steps_wait: 10   # dummy steps at episode start
+libero_eval_max_tasks: null       # null = all tasks; set to e.g. 5 for a quick subset
 save_total_limit: 8
 report_to: wandb
 seed: 42
@@ -121,6 +133,7 @@ training_args:
   report_to: ${report_to}
   seed: ${seed}
   do_eval: ${do_eval}
+  eval_on_start: ${eval_on_start}
   ddp_find_unused_parameters: ${ddp_find_unused_parameters}
   ddp_bucket_cap_mb: ${ddp_bucket_cap_mb}
   torch_compile_mode: ${torch_compile_mode}

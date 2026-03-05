@@ -88,6 +88,10 @@ torchrun --nproc_per_node $NUM_GPUS --standalone groot/vla/experiment/experiment
     image_resolution_width=224 \
     image_resolution_height=224 \
     save_lora_only=true \
+    libero_eval_task_suite=libero_10 \
+    libero_eval_num_trials=3 \
+    libero_eval_max_tasks=5 \
+    libero_eval_on_save=true \
     max_chunk_size=2 \
     frame_seqlen=784 \
     save_strategy=steps \
