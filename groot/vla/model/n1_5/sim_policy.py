@@ -220,6 +220,7 @@ class GrootSimPolicy(BaseGrootSimPolicy):
         skip_img_transform: bool = False,
         lazy_load: bool = False,
         device_mesh: DeviceMesh | None = None,
+        pretrained_model=None,
     ):
         """
         Initialize the GrootSimPolicy.
@@ -230,6 +231,9 @@ class GrootSimPolicy(BaseGrootSimPolicy):
             device (int | str): Device to run the model on.
             lazy_load (bool): If True, don't load model to GPU immediately.
             device_mesh (DeviceMesh | None): Device mesh to parallelize the model across.
+            pretrained_model: Optional pre-loaded VLA model. If provided, skips internal
+                model loading (from_pretrained) and uses this model directly. Useful to
+                bypass the buggy .base_layer. key-stripping in from_pretrained.
         """
         super().__init__(embodiment_tag=embodiment_tag, model_path=model_path, device=device)
         model_dir = Path(model_path)
@@ -244,63 +248,76 @@ class GrootSimPolicy(BaseGrootSimPolicy):
         # Store model loading parameters for lazy loading
         self.model_config_overrides = model_config_overrides
         self.model_dir = model_dir
-        
+
         # 1. Load the model
-        if (
-            train_cfg.model._target_.endswith(".from_pretrained")
-            or train_cfg.model._target_.endswith(".from_pretrained_for_tuning")
-            or train_cfg.model._target_.endswith(".from_pretrained_with_wrapped_action_head")
-        ):
-            # Compatibility with the finetuned model
-            model_target = train_cfg.model._target_.rsplit(".", 1)[0]
-        else:
+        if pretrained_model is not None:
+            # Use the caller-supplied model; skip from_pretrained entirely.
+            print("Using caller-supplied pretrained_model; skipping from_pretrained.")
+            model = pretrained_model
             model_target = train_cfg.model._target_
-            
-        self.model_target = model_target
-        
-        if model_config_overrides is not None and len(model_config_overrides) != 0:
-            print(f"Applying model config overrides: {model_config_overrides}")
-            # Only apply new logic if there are config overrides
-
-            # Import the model class from the target module path
-            module_path, class_name = model_target.rsplit(".", 1)
-            if "lora" in class_name:
-                module_path, class_name = module_path.rsplit(".", 1)
-            module = importlib.import_module(module_path)
-            model_class = getattr(module, class_name)
-            model_config_class = model_class.config_class
-
-            # Load the model config from the model directory
-            model_config = json.load(open(model_dir / "config.json", "r"))
-            model_config = OmegaConf.create(model_config)
-            model_config.merge_with_dotlist(list(model_config_overrides))
-            model_config = OmegaConf.to_container(
-                model_config, resolve=True
-            )  # need dict for later model instantiation
-            model_config = model_config_class.from_dict(model_config)
-
-            # Instantiate the model
-            if hasattr(train_cfg, "save_lora_only") and train_cfg.save_lora_only is True:
-                print(f"Loading LoRA weights from pretrained")
-                model = model_class.load_lora(model_path)
-            else:
-                print(f"Loading model from pretrained directly")
-                model = model_class.from_pretrained(model_path, config=model_config)
+            if (
+                model_target.endswith(".from_pretrained")
+                or model_target.endswith(".from_pretrained_for_tuning")
+                or model_target.endswith(".from_pretrained_with_wrapped_action_head")
+            ):
+                model_target = model_target.rsplit(".", 1)[0]
+            self.model_target = model_target
         else:
-            print(f"No model config overrides provided")
-            # Otherwise, just call from_pretrained directly
-            cls_module, cls_name = model_target.rsplit(".", 1)
-            if 'lora' in cls_name:
-                cls_module, cls_name = cls_module.rsplit(".", 1)
-            if hasattr(train_cfg, "save_lora_only") and train_cfg.save_lora_only is True:
-                print(f"Loading LoRA weights from pretrained")
-                cls = getattr(importlib.import_module(cls_module), cls_name)
-                model = cls.load_lora(model_path)
+            if (
+                train_cfg.model._target_.endswith(".from_pretrained")
+                or train_cfg.model._target_.endswith(".from_pretrained_for_tuning")
+                or train_cfg.model._target_.endswith(".from_pretrained_with_wrapped_action_head")
+            ):
+                # Compatibility with the finetuned model
+                model_target = train_cfg.model._target_.rsplit(".", 1)[0]
             else:
-                print(f"Loading model from pretrained directly")
-                cls = getattr(importlib.import_module(cls_module), cls_name)
-                from_pretrained = getattr(cls, "from_pretrained")
-                model = from_pretrained(model_path)
+                model_target = train_cfg.model._target_
+
+            self.model_target = model_target
+
+            if model_config_overrides is not None and len(model_config_overrides) != 0:
+                print(f"Applying model config overrides: {model_config_overrides}")
+                # Only apply new logic if there are config overrides
+
+                # Import the model class from the target module path
+                module_path, class_name = model_target.rsplit(".", 1)
+                if "lora" in class_name:
+                    module_path, class_name = module_path.rsplit(".", 1)
+                module = importlib.import_module(module_path)
+                model_class = getattr(module, class_name)
+                model_config_class = model_class.config_class
+
+                # Load the model config from the model directory
+                model_config = json.load(open(model_dir / "config.json", "r"))
+                model_config = OmegaConf.create(model_config)
+                model_config.merge_with_dotlist(list(model_config_overrides))
+                model_config = OmegaConf.to_container(
+                    model_config, resolve=True
+                )  # need dict for later model instantiation
+                model_config = model_config_class.from_dict(model_config)
+
+                # Instantiate the model
+                if hasattr(train_cfg, "save_lora_only") and train_cfg.save_lora_only is True:
+                    print(f"Loading LoRA weights from pretrained")
+                    model = model_class.load_lora(model_path)
+                else:
+                    print(f"Loading model from pretrained directly")
+                    model = model_class.from_pretrained(model_path, config=model_config)
+            else:
+                print(f"No model config overrides provided")
+                # Otherwise, just call from_pretrained directly
+                cls_module, cls_name = model_target.rsplit(".", 1)
+                if 'lora' in cls_name:
+                    cls_module, cls_name = cls_module.rsplit(".", 1)
+                if hasattr(train_cfg, "save_lora_only") and train_cfg.save_lora_only is True:
+                    print(f"Loading LoRA weights from pretrained")
+                    cls = getattr(importlib.import_module(cls_module), cls_name)
+                    model = cls.load_lora(model_path)
+                else:
+                    print(f"Loading model from pretrained directly")
+                    cls = getattr(importlib.import_module(cls_module), cls_name)
+                    from_pretrained = getattr(cls, "from_pretrained")
+                    model = from_pretrained(model_path)
 
         model.eval()
         model.requires_grad_(False)
@@ -951,14 +968,14 @@ def unsqueeze_dict_values(data: dict[str, Any]) -> dict[str, Any]:
 
 def squeeze_dict_values(data: dict[str, Any]) -> dict[str, Any]:
     """
-    Squeeze the values of a dictionary. This removes the batch dimension.
+    Squeeze the values of a dictionary. This removes the batch dimension (axis 0 only).
     """
     squeezed_data = {}
     for k, v in data.items():
         if isinstance(v, np.ndarray):
-            squeezed_data[k] = np.squeeze(v)
+            squeezed_data[k] = np.squeeze(v, axis=0) if v.ndim > 0 and v.shape[0] == 1 else v
         elif isinstance(v, torch.Tensor):
-            squeezed_data[k] = v.squeeze()
+            squeezed_data[k] = v.squeeze(0) if v.ndim > 0 and v.shape[0] == 1 else v
         else:
             squeezed_data[k] = v
     return squeezed_data

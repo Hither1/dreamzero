@@ -503,13 +503,13 @@ class WanModel(ModelMixin, ConfigMixin):
                         x = torch.utils.checkpoint.checkpoint(
                             block,
                             x, context, t_mod, freqs,
-                            use_reentrant=False,
+                            use_reentrant=True,
                         )
                 else:
                     x = torch.utils.checkpoint.checkpoint(
                         block,
                         x, context, t_mod, freqs,
-                        use_reentrant=False,
+                        use_reentrant=True,
                     )
             else:
                 x = block(x, context, t_mod, freqs)

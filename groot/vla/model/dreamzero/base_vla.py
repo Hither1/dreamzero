@@ -300,11 +300,25 @@ class VLA(PreTrainedModel):
                 # Free shard immediately
                 del shard_state_dict
                 gc.collect()
-            if missing_keys_accum:
-                print(f"Missing keys when loading sharded pretrained weights: {sorted(missing_keys_accum)} ... total={len(missing_keys_accum)}")
+            # Keys under these prefixes are loaded from their own component checkpoints
+            # (text encoder, image encoder, VAE, and the base DiT model) inside
+            # WANPolicyHead.__init__(), so they are expected to be absent from the
+            # sharded VLA checkpoint (which only contains LoRA deltas for the DiT).
+            _component_prefixes = (
+                "action_head.image_encoder.",
+                "action_head.text_encoder.",
+                "action_head.vae.",
+                "action_head.model.",
+            )
+            expected_missing = {k for k in missing_keys_accum if k.startswith(_component_prefixes)}
+            unexpected_missing = missing_keys_accum - expected_missing
+            if unexpected_missing:
+                print(f"Missing keys when loading sharded pretrained weights: {sorted(unexpected_missing)} ... total={len(unexpected_missing)}")
+            if expected_missing:
+                print(f"Expected missing keys (loaded from component checkpoints, not VLA shard): {sorted(expected_missing)} ... total={len(expected_missing)}")
             if unexpected_keys_accum:
                 print(f"Unexpected keys when loading sharded pretrained weights: {sorted(unexpected_keys_accum)} ... total={len(unexpected_keys_accum)}")
-            if not missing_keys_accum and not unexpected_keys_accum:
+            if not unexpected_missing and not unexpected_keys_accum:
                 print("Successfully loaded pretrained base weights (sharded)")
         elif os.path.exists(safetensors_path):
             # Handle single safetensors file
@@ -380,9 +394,22 @@ class VLA(PreTrainedModel):
         model = cls(config)
 
         print("model", model)
-        
+
         print("main network", model.action_head.model.blocks[8].cross_attn.k.weight.shape, model.action_head.model.blocks[8].cross_attn.k.weight[0,0:10])
-        print("lora weight before", model.action_head.model.blocks[8].self_attn.k.lora_A.default.weight[0,0:10])
+        # print("lora weight before", model.action_head.model.blocks[8].self_attn.k.lora_A.default.weight[0,0:10])
+
+        # Apply PEFT LoRA wrapping before loading the checkpoint so that
+        # merge_and_unload() works after loading, and so the LoRA keys in the
+        # state dict actually land in the right places.
+        if model.action_head.train_architecture == "lora":
+            print("Applying PEFT LoRA wrapping before loading checkpoint")
+            model.action_head.model = model.action_head.add_lora_to_model(
+                model.action_head.model,
+                lora_rank=model.action_head.lora_rank,
+                lora_alpha=model.action_head.lora_alpha,
+                lora_target_modules=model.action_head.lora_target_modules,
+                init_lora_weights=model.action_head.init_lora_weights,
+            )
 
         # Rewrite keys for loading the LoRA weights due to PEFT wrapping.
         # If a model is PEFT wrapped, the module hierarchy is changed by the PEFT library.
@@ -417,7 +444,7 @@ class VLA(PreTrainedModel):
         # Load weights
         missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
         print("main network after", model.action_head.model.blocks[8].cross_attn.k.weight.shape, model.action_head.model.blocks[8].cross_attn.k.weight[0,0:10])
-        print("lora weight", model.action_head.model.blocks[8].self_attn.k.lora_A.default.weight[0,0:10])
+        # print("lora weight", model.action_head.model.blocks[8].self_attn.k.lora_A.default.weight[0,0:10])
             
         if missing_keys:
             print(f"Missing keys when loading pretrained weights: {missing_keys}")

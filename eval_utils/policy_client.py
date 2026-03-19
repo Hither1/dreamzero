@@ -38,29 +38,21 @@ class WebsocketClientPolicy(BasePolicy):
 
     def _wait_for_server(self) -> Tuple[websockets.sync.client.ClientConnection, Dict]:
         logging.info(f"Waiting for server at {self._uri}...")
-        try:
-            conn = websockets.sync.client.connect(
-                self._uri, 
-                compression=None, 
-                max_size=None,
-                ping_interval=PING_INTERVAL_SECS,
-                ping_timeout=PING_TIMEOUT_SECS,
-            )
-            metadata = msgpack_numpy.unpackb(conn.recv())
-            return conn, metadata
-        except:
-            logging.info("Connection to server with ws:// failed. Trying wss:// ...")
-            
-        self._uri = "wss://" + self._uri.split("//")[1]
-        conn = websockets.sync.client.connect(
-            self._uri, 
-            compression=None, 
-            max_size=None,
-            ping_interval=PING_INTERVAL_SECS,
-            ping_timeout=PING_TIMEOUT_SECS,
-        )
-        metadata = msgpack_numpy.unpackb(conn.recv())
-        return conn, metadata
+        while True:
+            try:
+                conn = websockets.sync.client.connect(
+                    self._uri,
+                    compression=None,
+                    max_size=None,
+                    ping_interval=PING_INTERVAL_SECS,
+                    ping_timeout=PING_TIMEOUT_SECS,
+                )
+                metadata = msgpack_numpy.unpackb(conn.recv())
+                return conn, metadata
+            except Exception as e:
+                # Server not up yet (e.g. ConnectionRefusedError); retry
+                logging.info(f"Server not ready at {self._uri} ({type(e).__name__}: {e}), retrying in 5s...")
+                time.sleep(5)
 
     @override
     def infer(self, obs: Dict) -> Dict:  # noqa: UP006

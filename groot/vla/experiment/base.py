@@ -366,6 +366,43 @@ class BaseTrainer(transformers.Trainer):
         self.loss_queues = {}
         self.loss_queue_size = 10
 
+    def _load_rng_state(self, checkpoint):
+        # PyTorch 2.6 changed weights_only default to True, but RNG state files
+        # contain numpy arrays which require weights_only=False to load.
+        import os
+        import torch.distributed as dist
+
+        if checkpoint is None:
+            return
+
+        if self.args.world_size > 1:
+            process_index = self.args.process_index
+            rng_file = os.path.join(checkpoint, f"rng_state_{process_index}.pth")
+            if not os.path.isfile(rng_file):
+                rng_file = os.path.join(checkpoint, "rng_state.pth")
+        else:
+            rng_file = os.path.join(checkpoint, "rng_state.pth")
+
+        if not os.path.isfile(rng_file):
+            return
+
+        checkpoint_rng_state = torch.load(rng_file, weights_only=False)
+        torch.set_rng_state(checkpoint_rng_state["cpu"])
+        if "cuda" in checkpoint_rng_state:
+            if isinstance(checkpoint_rng_state["cuda"], list) and len(checkpoint_rng_state["cuda"]) > 0:
+                torch.cuda.set_rng_state_all(checkpoint_rng_state["cuda"])
+            else:
+                torch.cuda.set_rng_state(checkpoint_rng_state["cuda"])
+        if "numpy" in checkpoint_rng_state:
+            import numpy as np
+            np.random.set_state(checkpoint_rng_state["numpy"])
+        if "python" in checkpoint_rng_state:
+            import random
+            random.setstate(checkpoint_rng_state["python"])
+        if "xla" in checkpoint_rng_state:
+            import torch_xla.core.xla_model as xm
+            xm.set_rng_state(checkpoint_rng_state["xla"])
+
     def _get_train_sampler(self):
         return BaseSampler(self.train_dataset, shuffle=True, seed=self.args.seed)
 
@@ -799,8 +836,10 @@ class BaseExperiment(ABC):
                     seed=cfg.get("libero_eval_seed", 0),
                     replan_steps=cfg.get("libero_eval_replan_steps", 8),
                     eval_on_save=cfg.get("libero_eval_on_save", False),
+                    eval_on_train_begin=cfg.get("libero_eval_on_train_begin", True),
                     num_steps_wait=cfg.get("libero_eval_num_steps_wait", 10),
                     max_tasks=cfg.get("libero_eval_max_tasks", None),
+                    max_steps_per_episode=cfg.get("libero_eval_max_steps_per_episode", None),
                 )
             )
             mprint(f"LiberoEvalCallback registered for suite '{libero_task_suite}'")

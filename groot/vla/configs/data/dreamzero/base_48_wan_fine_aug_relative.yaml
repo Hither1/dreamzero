@@ -22,10 +22,10 @@ state_horizon: 1
 # image_resolution_height: 480
 
 image_resolution_width: 480
-image_resolution_height: 256
+image_resolution_height: 224
 
-image_resolution_width_single_frame: 256
-image_resolution_height_single_frame: 256
+image_resolution_width_single_frame: 224
+image_resolution_height_single_frame: 224
 
 ################################################################################
 # Anchored Video Transforms

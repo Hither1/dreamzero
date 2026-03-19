@@ -918,7 +918,19 @@ class CausalWanSelfAttention(nn.Module):
                     clean_image_k = roped_key[:, :clean_image_seq_len]
                     clean_image_v = v[:, :clean_image_seq_len]
 
-                    assert roped_query.shape[1] == half_seq_len + noisy_image_seq_len + action_horizon + state_horizon
+                    if roped_query.shape[1] != half_seq_len + noisy_image_seq_len + action_horizon + state_horizon:
+                        raise AssertionError(
+                            f"Sequence length mismatch: roped_query.shape[1]={roped_query.shape[1]}, "
+                            f"half_seq_len={half_seq_len}, noisy_image_seq_len={noisy_image_seq_len}, "
+                            f"action_horizon={action_horizon}, state_horizon={state_horizon}, "
+                            f"sum={half_seq_len + noisy_image_seq_len + action_horizon + state_horizon}, "
+                            f"action_register_length={action_register_length}, "
+                            f"self.frame_seqlen={self.frame_seqlen}, noisy_frames={noisy_frames}, "
+                            f"num_image_blocks={num_image_blocks}, "
+                            f"self.num_action_per_block={self.num_action_per_block}, "
+                            f"self.num_state_per_block={self.num_state_per_block}, "
+                            f"self.num_frame_per_block={self.num_frame_per_block}"
+                        )
                     
                     # Noisy: [image tokens][action tokens][state tokens]
                     noisy_image_q = roped_query[:, half_seq_len:half_seq_len + noisy_image_seq_len]

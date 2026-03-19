@@ -826,7 +826,7 @@ class WanModel(ModelMixin, ConfigMixin):
                 x = torch.utils.checkpoint.checkpoint(
                     create_custom_forward(block, **kwargs),
                     x,
-                    use_reentrant=False,
+                    use_reentrant=True,
                 )
             else:
                 x = block(x, **kwargs)

@@ -24,8 +24,24 @@ from typing import Optional
 import numpy as np
 import torch
 import torch.distributed as dist
-from omegaconf import OmegaConf
+from omegaconf import OmegaConf, open_dict
 from transformers import TrainerCallback
+
+
+def _quat2axisangle(quat: np.ndarray) -> np.ndarray:
+    """Convert quaternion [x, y, z, w] to axis-angle (3D)."""
+    # Clip for numerical stability
+    quat = np.array(quat, dtype=np.float64)
+    # Normalize
+    quat = quat / (np.linalg.norm(quat) + 1e-9)
+    x, y, z, w = quat
+    # angle
+    angle = 2.0 * np.arccos(np.clip(abs(w), 0.0, 1.0))
+    s = np.sqrt(1.0 - w * w)
+    if s < 1e-6:
+        return np.array([0.0, 0.0, 0.0])
+    axis = np.array([x, y, z]) / s
+    return axis * angle
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +101,7 @@ class _InlinePolicy:
             "groot.vla.data.transform.VideoCrop",
             "groot.vla.data.transform.VideoColorJitter",
         }
-        with OmegaConf.open_dict(eval_transform_cfg):
+        with open_dict(eval_transform_cfg):
             eval_transform_cfg.transforms = [
                 t for t in eval_transform_cfg.transforms
                 if t._target_ not in skipped
@@ -192,8 +208,10 @@ class LiberoEvalCallback(TrainerCallback):
         seed: int = 0,
         replan_steps: int = 8,
         eval_on_save: bool = False,
+        eval_on_train_begin: bool = True,
         num_steps_wait: int = 10,
         max_tasks: Optional[int] = None,
+        max_steps_per_episode: Optional[int] = None,
     ):
         self.task_suite_name = task_suite_name
         self.num_trials_per_task = num_trials_per_task
@@ -202,16 +220,18 @@ class LiberoEvalCallback(TrainerCallback):
         self.seed = seed
         self.replan_steps = replan_steps
         self.eval_on_save = eval_on_save
+        self.eval_on_train_begin = eval_on_train_begin
         self.num_steps_wait = num_steps_wait
         self.max_tasks = max_tasks
+        self.max_steps_per_episode = max_steps_per_episode
 
     # ------------------------------------------------------------------
     # TrainerCallback hooks
     # ------------------------------------------------------------------
 
     def on_train_begin(self, args, state, control, model=None, **kwargs):
-        # Triggered by eval_on_start=True in TrainingArguments; also runs
-        # when training resumes (global_step > 0), which is intentional.
+        if not self.eval_on_train_begin:
+            return
         self._run_eval(model, state, tag="step0")
 
     def on_save(self, args, state, control, model=None, **kwargs):
@@ -251,6 +271,7 @@ class LiberoEvalCallback(TrainerCallback):
         except Exception:
             logger.error("LiberoEvalCallback error:\n%s", traceback.format_exc())
         finally:
+            torch.cuda.empty_cache()
             model.train()
             if dist.is_initialized():
                 dist.barrier()
@@ -265,6 +286,8 @@ class LiberoEvalCallback(TrainerCallback):
         if self.max_tasks is not None:
             n_tasks = min(n_tasks, self.max_tasks)
         max_steps = _MAX_STEPS.get(self.task_suite_name, 400)
+        if self.max_steps_per_episode is not None:
+            max_steps = min(max_steps, self.max_steps_per_episode)
         np.random.seed(self.seed)
 
         total_eps = total_succ = 0
@@ -276,8 +299,8 @@ class LiberoEvalCallback(TrainerCallback):
             bddl = Path(get_libero_path("bddl_files")) / task.problem_folder / task.bddl_file
             env = OffScreenRenderEnv(
                 bddl_file_name=str(bddl),
-                camera_heights=256,
-                camera_widths=256,
+                camera_heights=224,
+                camera_widths=224,
             )
             env.seed(self.seed)
             desc = str(task.language)
@@ -301,15 +324,19 @@ class LiberoEvalCallback(TrainerCallback):
                     if not action_plan:
                         img   = np.ascontiguousarray(obs["agentview_image"])
                         wrist = np.ascontiguousarray(obs["robot0_eye_in_hand_image"])
+                        # state.joint_position = EEF pose (xyz + axis-angle rot) = 6-dim
+                        # state.gripper_position = gripper qpos (2 fingers) = 2-dim
+                        # This matches the training data layout in observation.state[0:6] / [6:8]
+                        eef_pos = np.array(obs["robot0_eef_pos"], dtype=np.float64)      # (3,)
+                        eef_rot = _quat2axisangle(np.array(obs["robot0_eef_quat"], dtype=np.float64))  # (3,)
                         dz_obs = {
                             "video.agentview_rgb":   img[None].astype(np.uint8),
                             "video.eye_in_hand_rgb": wrist[None].astype(np.uint8),
                             "state.joint_position":
-                                np.array(obs["robot0_joint_pos"],
-                                         dtype=np.float64).reshape(1, -1),
+                                np.concatenate([eef_pos, eef_rot]).reshape(1, -1),       # (1, 6)
                             "state.gripper_position":
                                 np.array(obs["robot0_gripper_qpos"],
-                                         dtype=np.float64)[:1].reshape(1, -1),
+                                         dtype=np.float64).reshape(1, -1),               # (1, 2)
                             "annotation.language.language_instruction": desc,
                         }
                         try:
@@ -328,6 +355,7 @@ class LiberoEvalCallback(TrainerCallback):
                         total_succ += 1
                         break
 
+                torch.cuda.empty_cache()
                 task_eps += 1
                 total_eps += 1
                 success = bool(done and reward > 0)

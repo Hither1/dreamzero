@@ -80,6 +80,7 @@ libero_eval_replan_steps: 8      # execute N actions from each chunk before repl
 libero_eval_on_save: false        # also eval after every checkpoint (not just step 0)
 libero_eval_num_steps_wait: 10   # dummy steps at episode start
 libero_eval_max_tasks: null       # null = all tasks; set to e.g. 5 for a quick subset
+libero_eval_max_steps_per_episode: null  # null = use suite default; set to cap episode length
 save_total_limit: 8
 report_to: wandb
 seed: 42

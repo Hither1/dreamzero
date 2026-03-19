@@ -29,7 +29,7 @@ try:
     import transformer_engine
     from groot.vla.model.dreamzero.modules.cudnn_attention import DotProductAttention
     TRANSFORMER_ENGINE_AVAILABLE = True
-except ModuleNotFoundError:
+except (ModuleNotFoundError, RuntimeError):
     TRANSFORMER_ENGINE_AVAILABLE = False
 
 import warnings

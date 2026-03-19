@@ -203,6 +203,7 @@ class WANPolicyHead(ActionHead):
         
         self._device = "cuda"
         self.dynamic_cache_schedule = os.getenv("DYNAMIC_CACHE_SCHEDULE", "False").lower() == "true"
+        self.trt_engine = None
 
 
         num_dit_steps = 8
@@ -342,9 +343,6 @@ class WANPolicyHead(ActionHead):
                 lora_target_modules=self.lora_target_modules,
                 init_lora_weights=self.init_lora_weights,
             )
-            self.model.state_encoder.requires_grad_(True)
-            self.model.action_encoder.requires_grad_(True)
-            self.model.action_decoder.requires_grad_(True)
         elif self.train_architecture == "lora" and self.defer_lora_injection:
             print("Deferring LoRA injection until after pretrained weights are loaded")
         else:
@@ -390,12 +388,11 @@ class WANPolicyHead(ActionHead):
                 lora_target_modules=self.lora_target_modules,
                 init_lora_weights=self.init_lora_weights,
             )
-            self.model.state_encoder.requires_grad_(True)
-            self.model.action_encoder.requires_grad_(True)
-            self.model.action_decoder.requires_grad_(True)
-            # self.model.registers.requires_grad_(True)
-            # self.model.time_modality_projection.requires_grad_(True)
-            
+
+            # Required for gradient checkpointing + PEFT LoRA: ensures inputs to
+            # the LoRA-wrapped model require gradients even when all base params are frozen.
+            self.model.enable_input_require_grads()
+
             self.text_encoder.requires_grad_(False)
             self.image_encoder.requires_grad_(False)
             self.vae.requires_grad_(False)

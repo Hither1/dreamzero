@@ -26,6 +26,10 @@ module load cuda/12.4.1-fasrc01
 
 export HYDRA_FULL_ERROR=1
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC=10800  # 3h heartbeat — eval can block ranks
+# ddp_timeout is passed to dist.init_process_group(timeout=...) via HF Trainer.
+# Default is 1800s (30 min); LIBERO eval on rank 0 can take >30 min with many tasks.
+# Set to 3h to prevent NCCL operation timeout during inline eval.
 
 source ~/.bashrc
 conda deactivate
@@ -33,6 +37,12 @@ conda activate vla
 
 export PYTHONPATH=$PYTHONPATH:$PWD/third_party/libero
 export LIBERO_CONFIG_PATH=/n/holylfs06/LABS/sham_lab/Users/chloe00/vla-interp/third_party/libero
+export PYTHONPATH=$PYTHONPATH:/n/netscratch/sham_lab/Lab/chloe00/libero
+export LIBERO_CONFIG_PATH=/n/netscratch/sham_lab/Lab/chloe00/libero
+export HF_HOME=/n/netscratch/sham_lab/Lab/chloe00/huggingface
+export TRANSFORMERS_CACHE=/n/netscratch/sham_lab/Lab/chloe00/huggingface
+export HF_HUB_OFFLINE=1
+export TRANSFORMERS_OFFLINE=1
 
 # ============ USER CONFIGURATION ============
 OUTPUT_DIR=${OUTPUT_DIR:-"/n/netscratch/sham_lab/Lab/chloe00/libero/dreamzero_libero_all_lora"}
@@ -60,7 +70,7 @@ torchrun --nproc_per_node $NUM_GPUS --standalone groot/vla/experiment/experiment
     data=dreamzero/libero_all_relative \
     wandb_project=dreamzero_libero_all \
     train_architecture=lora \
-    num_frames=17 \
+    num_frames=9 \
     action_horizon=48 \
     num_views=2 \
     model=dreamzero/vla \
@@ -70,16 +80,17 @@ torchrun --nproc_per_node $NUM_GPUS --standalone groot/vla/experiment/experiment
     num_action_per_block=48 \
     num_state_per_block=1 \
     seed=42 \
-    training_args.learning_rate=1e-4 \
+    training_args.learning_rate=1e-5 \
     training_args.deepspeed="groot/vla/configs/deepspeed/zero2.json" \
     save_steps=200 \
     training_args.warmup_ratio=0.05 \
     output_dir=$OUTPUT_DIR \
-    per_device_train_batch_size=1 \
-    max_steps=10000 \
+    per_device_train_batch_size=4 \
+    max_steps=82000 \
     weight_decay=1e-5 \
     save_total_limit=5 \
     upload_checkpoints=false \
+    gradient_checkpointing=true \
     bf16=true \
     tf32=true \
     eval_bf16=true \
@@ -87,12 +98,15 @@ torchrun --nproc_per_node $NUM_GPUS --standalone groot/vla/experiment/experiment
     dataloader_num_workers=1 \
     image_resolution_width=224 \
     image_resolution_height=224 \
-    save_lora_only=true \
+    save_lora_only=false \
     libero_eval_task_suite=libero_10 \
     libero_eval_num_trials=3 \
     libero_eval_max_tasks=5 \
-    libero_eval_on_save=true \
-    max_chunk_size=2 \
+    libero_eval_on_save=false \
+    ++libero_eval_on_train_begin=false \
+    libero_eval_max_steps_per_episode=200 \
+    ++training_args.ddp_timeout=10800 \
+    max_chunk_size=1 \
     frame_seqlen=784 \
     save_strategy=steps \
     dit_version=$WAN_CKPT_DIR \
@@ -100,6 +114,6 @@ torchrun --nproc_per_node $NUM_GPUS --standalone groot/vla/experiment/experiment
     image_encoder_pretrained_path=$WAN_CKPT_DIR/models_clip_open-clip-xlm-roberta-large-vit-huge-14.pth \
     vae_pretrained_path=$WAN_CKPT_DIR/Wan2.1_VAE.pth \
     tokenizer_path=$TOKENIZER_DIR \
-    pretrained_model_path=/n/netscratch/sham_lab/Lab/chloe00/libero/checkpoints/DreamZero-AgiBot \
+    pretrained_model_path=/n/netscratch/sham_lab/Lab/chloe00/libero/checkpoints/DreamZero-DROID \
     ++action_head_cfg.config.skip_component_loading=true \
     ++action_head_cfg.config.defer_lora_injection=true
