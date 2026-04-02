@@ -509,7 +509,7 @@ class WebsocketPolicyServer:
             except Exception as e:
                 logger.error(f"Worker loop error on rank {dist.get_rank()}: {e}")
                 traceback.print_exc()
-                break
+                continue
 
     def _receive_batch_from_rank0(self):
         """Receive batch data from rank 0 using torch.distributed primitives."""

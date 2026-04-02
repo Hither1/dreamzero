@@ -391,7 +391,14 @@ class WANPolicyHead(ActionHead):
 
             # Required for gradient checkpointing + PEFT LoRA: ensures inputs to
             # the LoRA-wrapped model require gradients even when all base params are frozen.
-            self.model.enable_input_require_grads()
+            if hasattr(self.model, 'enable_input_require_grads'):
+                self.model.enable_input_require_grads()
+            else:
+                # Fallback for older PEFT versions that don't expose this method on PeftModel.
+                def _make_inputs_require_grad(module, input, output):
+                    if isinstance(output, torch.Tensor):
+                        output.requires_grad_(True)
+                self.model.register_forward_hook(_make_inputs_require_grad)
 
             self.text_encoder.requires_grad_(False)
             self.image_encoder.requires_grad_(False)

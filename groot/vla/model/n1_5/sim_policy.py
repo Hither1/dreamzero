@@ -26,6 +26,66 @@ from groot.vla.data.schema import DatasetMetadata, EmbodimentTag
 from groot.vla.data.transform import ComposedModalityTransform
 
 
+def _tokenizer_candidates(configured_path: str, model_dir: Path) -> list[Path]:
+    configured = Path(configured_path)
+    checkpoint_dir = model_dir.parent
+    roots = [model_dir, checkpoint_dir, checkpoint_dir.parent]
+    candidates: list[Path] = []
+
+    for root in roots:
+        if root is None:
+            continue
+        candidates.append(root / configured)
+        candidates.append(root / configured.name)
+        candidates.append(root / "umt5-xxl")
+        candidates.append(root / "google" / "umt5-xxl")
+        candidates.append(root / "checkpoints" / "umt5-xxl")
+        candidates.append(root / "Wan2.1-I2V-14B-480P" / "google" / "umt5-xxl")
+
+    candidates.extend(
+        [
+            Path("/n/netscratch/sham_lab/Lab/chloe00/umt5-xxl"),
+            Path("/n/netscratch/sham_lab/Lab/chloe00/libero/checkpoints/Wan2.1-I2V-14B-480P/google/umt5-xxl"),
+        ]
+    )
+
+    unique_candidates: list[Path] = []
+    seen: set[Path] = set()
+    for candidate in candidates:
+        if candidate not in seen:
+            seen.add(candidate)
+            unique_candidates.append(candidate)
+    return unique_candidates
+
+
+def _resolve_local_tokenizer_path(configured_path: str, model_dir: Path) -> str:
+    configured = Path(configured_path)
+    if configured.is_dir():
+        return str(configured)
+
+    for candidate in _tokenizer_candidates(configured_path, model_dir):
+        if candidate.is_dir():
+            return str(candidate)
+
+    return configured_path
+
+
+def _rewrite_tokenizer_paths_in_config(config: Any, model_dir: Path) -> Any:
+    if isinstance(config, dict):
+        rewritten = {}
+        for key, value in config.items():
+            if key == "tokenizer_path" and isinstance(value, str):
+                rewritten[key] = _resolve_local_tokenizer_path(value, model_dir)
+            else:
+                rewritten[key] = _rewrite_tokenizer_paths_in_config(value, model_dir)
+        return rewritten
+
+    if isinstance(config, list):
+        return [_rewrite_tokenizer_paths_in_config(value, model_dir) for value in config]
+
+    return config
+
+
 class ModelManager:
     """
     Manages model loading/offloading to handle memory efficiently when using multiple models.
@@ -242,8 +302,17 @@ class GrootSimPolicy(BaseGrootSimPolicy):
         exp_cfg_dir = model_dir / "experiment_cfg"
         train_cfg_path = exp_cfg_dir / "conf.yaml"
         train_cfg = OmegaConf.load(train_cfg_path)
+        train_cfg_resolved = _rewrite_tokenizer_paths_in_config(
+            OmegaConf.to_container(train_cfg, resolve=False),
+            model_dir,
+        )
+        train_cfg = OmegaConf.create(train_cfg_resolved)
         self.train_cfg = train_cfg
         self.lazy_load = lazy_load
+
+        resolved_tokenizer_path = train_cfg.get("tokenizer_path")
+        if dist.get_rank() == 0 and resolved_tokenizer_path is not None:
+            print(f"Resolved tokenizer_path to: {resolved_tokenizer_path}")
 
         # Store model loading parameters for lazy loading
         self.model_config_overrides = model_config_overrides

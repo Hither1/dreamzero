@@ -1,15 +1,15 @@
 #!/bin/bash
 #SBATCH --job-name=dreamzero_droid_serve
 #SBATCH --partition=kempner_h100
-#SBATCH --account=kempner_sham_lab
+#SBATCH --account=kempner_grads
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=2
 #SBATCH --gres=gpu:2
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=500G
 #SBATCH --time=0-12:00:00
-#SBATCH --output=logs/dreamzero_droid_serve_%j.out
-#SBATCH --error=logs/dreamzero_droid_serve_%j.err
+#SBATCH --output=/n/holylfs06/LABS/sham_lab/Users/chloe00/vla-interp/dreamzero/logs/dreamzero_droid_serve_%j.out
+#SBATCH --error=/n/holylfs06/LABS/sham_lab/Users/chloe00/vla-interp/dreamzero/logs/dreamzero_droid_serve_%j.err
 
 # DreamZero DROID Real-Robot Policy Server
 #
@@ -75,12 +75,23 @@ export PYTHONPATH=$PYTHONPATH:$PWD
 export HF_HOME=/n/netscratch/sham_lab/Lab/chloe00/huggingface
 export HF_HUB_CACHE=$HF_HOME/hub
 mkdir -p "$HF_HUB_CACHE"
+# Force offline mode so transformers never tries to contact huggingface.co
+export TRANSFORMERS_OFFLINE=1
+export HF_HUB_OFFLINE=1
 
 # Persist PyTorch Inductor compiled kernels and FX graphs to disk.
 # On first run each unique tensor shape is compiled (~5 min total).
 # On subsequent server restarts the cache is loaded instead (~30 s warmup).
 export TORCHINDUCTOR_CACHE_DIR=/n/netscratch/sham_lab/Lab/chloe00/torch_inductor_cache
 mkdir -p "$TORCHINDUCTOR_CACHE_DIR"
+
+# Redirect Triton GPU kernel cache away from ~/.triton (home quota).
+export TRITON_CACHE_DIR=/n/netscratch/sham_lab/Lab/chloe00/triton_cache
+mkdir -p "$TRITON_CACHE_DIR"
+
+# Prevent Python from writing .pyc bytecode files to the repo on holylfs06,
+# which counts against the sham_lab group quota (~40 TB limit).
+export PYTHONDONTWRITEBYTECODE=1
 
 # tyro parses bool fields as flags (--flag / omit), not --flag true/false.
 # Build the optional --enable_dit_cache flag only when requested.
@@ -97,3 +108,8 @@ torchrun \
     --model_path "$MODEL_PATH" \
     $DIT_CACHE_FLAG \
     --index $SERVER_INDEX
+
+# Clean up Triton GPU kernel cache after server exits to reclaim holylfs06 quota.
+echo "Cleaning up Triton cache at $TRITON_CACHE_DIR ..."
+rm -rf "$TRITON_CACHE_DIR"
+echo "Done."

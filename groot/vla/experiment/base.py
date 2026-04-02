@@ -519,6 +519,21 @@ class BaseTrainer(transformers.Trainer):
             return
         super()._save_optimizer_and_scheduler(output_dir)
 
+    def _load_optimizer_and_scheduler(self, checkpoint):
+        # The saved LR scheduler state may have a different number of lr_lambdas than the
+        # current scheduler (e.g. when resuming a LoRA run whose param groups changed).
+        # Catch the resulting IndexError and skip scheduler state loading so training can
+        # continue with a freshly-initialized scheduler rather than crashing.
+        try:
+            super()._load_optimizer_and_scheduler(checkpoint)
+        except IndexError:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                "Could not load LR scheduler state from checkpoint (lr_lambdas count "
+                "mismatch — param groups may have changed). Starting scheduler from scratch."
+            )
+
     def save_model(self, output_dir: Optional[str], _internal_call: bool):
 
         ## save tuned model separately
